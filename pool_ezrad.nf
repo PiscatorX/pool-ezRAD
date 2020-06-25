@@ -284,7 +284,7 @@ process  merge_contigs{
     output:
         file "sort_contig.cluster_ids" 
 	file "contig_cluster.totaluniqseq"
-        file "Rcluster_contig.cluster_ids"
+        file "Rclusters" into rainbow_clusters
 
 shell:
 """
@@ -296,7 +296,7 @@ shell:
    paste sort_contig.cluster_ids !{totaluniqseq}  > contig_cluster.totaluniqseq
 
    sort -k 2,2 -g contig_cluster.totaluniqseq \
-      | sed -e 's/NNNNNNNNNN/\\t/g' > Rcluster_contig.cluster_ids 
+      | sed -e 's/NNNNNNNNNN/\\t/g' > Rclusters 
 
 """
 
@@ -305,9 +305,40 @@ shell:
 //col2=Cluster_ID
 //NB: Clustered become 1-indexed
 
+//Rclusters 
+//Read_ID	Cluster_ID	Forward_Read	Reverse_Read
+
 }
 
 
+
+process rainbow_div{
+
+    echo true
+    input:
+        file rainbow_clusters
+
+
+    output:
+         file "rainbow_div.out" into rainbow_div
+  	    
+"""
+   
+   rainbow \
+       div \
+       -i ${rainbow_clusters} \
+       -f 0.5 \
+       -K 10 \
+       -o rainbow_div.out
+
+"""
+// Output File Format: <seqid:int>\t<cluster_id:int>\t<read1:string>\t<read2:string>[\t<pre_cluster_id:int>]
+//   -k <int>    K_allele, min variants to create a new group [2]
+//   -K <int>    K_allele, divide regardless of frequency when num of variants exceed this value [50]
+//   The sets the number of reads to apply the freq/k filters	
+
+    
+}
 
 
 
