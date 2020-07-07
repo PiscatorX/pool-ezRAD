@@ -22,8 +22,6 @@ Channel.fromFilePairs(reads_pattern)
        .ifEmpty{ exit 1, "params.reads empty no reads found" }
        .into{rad_tags; uniq_rad1; uniq_rad2; uniq_rad3; raw_reads_bwa}     
 
-//raw_reads.map{ it  -> [ it[1][0], it[1][1]] }
-//         .set{ raw_reads_FastQC }
 
 
 
@@ -66,7 +64,7 @@ script:
 
 process uniq_RAD{
 
-    publishDir params.output + "RawReads"
+    publishDir params.output + "/RawReads"
     publishDir params.output + "uniqRAD/seqcount_data", pattern: "*.uniq_seq"
     
     input:
@@ -97,7 +95,7 @@ script:
 process sample_coverage{
 
     
-    publishDir params.output + "/coveraga"
+    publishDir params.output + "/coverage"
     
     input:
        file uniqseqs from  seqcounts1
@@ -264,7 +262,7 @@ shell:
 process get_contigs{
 
     echo true
-    publishDir params.output + "contigs"
+    publishDir params.output + "/contigs"
     
     input:
         file uniq_seqs from uniq_filtrd
@@ -292,7 +290,7 @@ shell:
 process cd_hit_FWD{
 
 
-     publishDir params.output + "contigs"
+     publishDir params.output + "/contigs"
      
      input:
          file uniq_FWD from uniq_FWD_reads
@@ -321,7 +319,7 @@ process cd_hit_FWD{
 process  merge_contigs{
 
     echo true
-    publishDir params.output + "clusters"
+    publishDir params.output + "/clusters"
     
     input:
          file Fwd_clusters from cd_hit_clusters
@@ -359,7 +357,7 @@ shell:
 process rainbow_div{
 
     echo true
-    publishDir params.output + "clusters"
+    publishDir params.output + "/clusters"
     input:
         file rainbow_clusters
 
@@ -388,14 +386,15 @@ process rainbow_div{
 process rainbow_merge{
 
     echo true
-    publishDir params.output + "clusters"
+    publishDir params.output + "/clusters"
     
     input:
         file   rainbow_div
 	
 
     output:
-         file "rainbow_assembly.out" into rainbow_assembly
+         file "rainbow_assembly.rbasm" into rainbow_assembly
+	 file "rainbow_contigs.fasta"  into rainbow_contigs
 	 
 shell:
 '''
