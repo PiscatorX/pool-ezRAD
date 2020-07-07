@@ -66,8 +66,8 @@ script:
 
 process uniq_RAD{
 
-    publishDir "$PWD/uniqRAD/RawReads"
-    publishDir "$PWD/uniqRAD/seqcount_data", pattern: "*.uniq_seq"
+    publishDir params.output + "RawReads"
+    publishDir params.output + "uniqRAD/seqcount_data", pattern: "*.uniq_seq"
     
     input:
        set val(sample), file(reads) from uniq_rad1
@@ -95,12 +95,15 @@ script:
 
 
 process sample_coverage{
-    echo true
-    publishDir "$PWD/uniqRAD/coveraga"
+
+    
+    publishDir params.output + "/coveraga"
+    
     input:
        file uniqseqs from  seqcounts1
    output:
 	file  "${uniqseqs.baseName}.coverage"
+	
 shell:
 '''
    for i in {2..20};
@@ -121,7 +124,8 @@ shell:
 
 process combined_coverage{
     
-    publishDir  "$PWD/uniqRAD/coverage"
+    publishDir  params.output + "/uniqRAD/coverage"
+    
     input:
         file uniqseqs from  seqcounts2.collect()
     output:
@@ -149,17 +153,15 @@ shell:
 
 
 
-
 uniq_rad2.map{ it  -> [it[1][0], it[1][1]]}
                       .flatten()
                       .set{gunzipped}
 
 
-
 process gunzip_fastq{
     
     echo true
-    publishDir "$PWD/uniqRAD/seqcount_data"
+    publishDir params.output + "/uniqRAD/seqcount_data"
     input:
         file fastq_gz from gunzipped
 	
@@ -167,15 +169,12 @@ process gunzip_fastq{
         file "${fastq_gz.baseName}*" into fastq_raw
 	
 script:
-
-	
 """
   
   gunzip -vk --force  ${fastq_gz}
   
    
 """
-	
 }
 
        
@@ -183,7 +182,7 @@ script:
 process Coverage_filtering{
     
     echo true
-    publishDir "$PWD/uniqRAD/seqcount_data"
+    publishDir params.output + "/uniqRAD/seqcount_data"
 	
     input:
         file reads from fastq_raw.collect()
@@ -217,7 +216,7 @@ script:
 process seq_filter{
 
     echo true
-    publishDir "$PWD/uniqRAD/coverage"
+    publishDir params.output + "/uniqRAD/coverage"
     
     input:
        file uniqseqs from  uniq_rad3.collect()
@@ -265,7 +264,8 @@ shell:
 process get_contigs{
 
     echo true
-    publishDir "$PWD/uniqRAD/contigs"
+    publishDir params.output + "contigs"
+    
     input:
         file uniq_seqs from uniq_filtrd
 
@@ -289,11 +289,11 @@ shell:
 
 
 
-
 process cd_hit_FWD{
 
 
-     publishDir "$PWD/uniqRAD/contigs"
+     publishDir params.output + "contigs"
+     
      input:
          file uniq_FWD from uniq_FWD_reads
 
@@ -317,15 +317,12 @@ process cd_hit_FWD{
 }
 
 
-// cd_hit_clusters = Channel.fromPath("/home/drewx/Documents/pool-ezRAD/DevOps/uniq_Fwd_cdHit.clstr
-
-
-
 
 process  merge_contigs{
 
-    publishDir "$PWD/uniqRAD/clusters"
     echo true
+    publishDir params.output + "clusters"
+    
     input:
          file Fwd_clusters from cd_hit_clusters
 	 file totaluniqseq
@@ -353,10 +350,8 @@ shell:
 //col1=contig_ID
 //col2=Cluster_ID
 //NB: Clustered become 1-indexed
-
 //Rclusters 
 //Read_ID	Cluster_ID	Forward_Read	Reverse_Read
-
 }
 
 
@@ -364,7 +359,7 @@ shell:
 process rainbow_div{
 
     echo true
-    publishDir "$PWD/uniqRAD/rainbow"
+    publishDir params.output + "clusters"
     input:
         file rainbow_clusters
 
@@ -393,13 +388,14 @@ process rainbow_div{
 process rainbow_merge{
 
     echo true
-    publishDir "$PWD/uniqRAD/rainbow"
+    publishDir params.output + "clusters"
+    
     input:
         file   rainbow_div
 	
 
     output:
-         //file "rainbow_assembly.out" into rainbow_assembly
+         file "rainbow_assembly.out" into rainbow_assembly
 	 
 shell:
 '''
