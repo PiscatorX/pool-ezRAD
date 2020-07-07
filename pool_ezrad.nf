@@ -386,7 +386,7 @@ process rainbow_div{
 process rainbow_merge{
 
     echo true
-    publishDir params.output + "/clusters"
+    publishDir params.output + "/contigs"
     
     input:
         file   rainbow_div
@@ -394,8 +394,7 @@ process rainbow_merge{
 
     output:
          file "rainbow_assembly.rbasm" into rainbow_assembly
-	 file "rainbow_contigs.fasta"  into rainbow_contigs
-	 
+	 file "rainbow_contigs.fasta"  into rainbow_contigs	 
 shell:
 '''
    
@@ -450,4 +449,31 @@ shell:
 
 '''
     
+}
+
+
+
+process cd_hit_contigs{
+
+    echo true
+    publishDir params.output + "/contigs"
+    
+    input:
+        file merged_contigs  from rainbow_contigs
+	
+    output:
+        file "${merged_contigs.baseName}*" into filterd_contigs 
+	    
+script:
+"""
+
+     cd-hit-est \
+	 -i ${merged_contigs} \
+	 -o ${merged_contigs.baseName}_cdhit \
+	 -c ${params.clu_perc} \
+	 -T ${params.hcpu} \
+	 -M 0 \
+
+
+"""
 }
