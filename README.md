@@ -7,8 +7,7 @@ This is a [Nextflow](https://www.nextflow.io/) implementation of the ezRAD data 
 * [Nextflow](https://www.nextflow.io/)
 * [dDocent](https://www.ddocent.com/)
 
-
-### dDocent
+<!-- ### dDocent -->
 <!-- What things you need to install the software and how to install them -->
 
 <!-- ``` -->
