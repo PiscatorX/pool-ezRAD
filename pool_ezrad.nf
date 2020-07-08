@@ -10,13 +10,17 @@ params.pattern 	 =  "*R{1,2}.fastq.gz"
 params.output   =  "$PWD/dDocent"
 params.hcpu	=  4
 params.mcpu	=  4
-params.barcode  = "barcodes"
+params.barcodes =  "/home/drewx/Documents/pool-ezRAD/SimulationData2/SimRAD.barcodes"
 params.min_cov  = 4
 params.min_sample  = 4
 params.clu_perc = 0.8
-       
-barcodes    	=  file(params.barcode)
+
+
 reads_pattern 	=  params.reads + "/*" + params.pattern
+
+barcodes 	=  Channel.fromPath(params.barcodes)
+                           .ifEmpty{ exit 1, "params.barcodes empty no reads found" }
+
 
 Channel.fromFilePairs(reads_pattern)
        .ifEmpty{ exit 1, "params.reads empty no reads found" }
@@ -27,7 +31,8 @@ Channel.fromFilePairs(reads_pattern)
 
 
 process process_radtags{
-    echo true
+
+    //echo true
     publishDir  params.output + "/RadTags"
     
     input:
@@ -36,14 +41,18 @@ process process_radtags{
 
     output:
 	file "process_radtags.log"  into rag_log
-	file "sample*"  into demultiplexed_reads
+	file "*.{F,R}.fq.gz"  into (demultiplexed_reads1, demultiplexed_reads2) 
 
 
 script:
   (read1, read2) = reads
 
-"""
 
+"""
+    cut -f 2 \
+        ${barcodes} > \
+        barcodes
+    
     process_radtags \
         -1 ${read1} \
         -2 ${read2} \
@@ -55,8 +64,10 @@ script:
 
     rm *rem*
 
-"""
+    Rename_for_dDocent.sh \
+        SimRAD.barcodes
 
+"""
 
 }
 
@@ -65,55 +76,62 @@ script:
 process uniq_RAD{
 
     publishDir params.output + "/RawReads"
-    publishDir params.output + "uniqRAD/seqcount_data", pattern: "*.uniq_seq"
+    publishDir params.output + "/uniqRAD", pattern: "*.uniq_seq"
     
     input:
-       set val(sample), file(reads) from uniq_rad1
+        set foward, reverse from demultiplexed_reads1.flatten().collate(2, false)
 
     output:
         file "${sample}.{forward,reverse}"
-	file "${sample}.uniq_seq"  into (seqcounts1, seqcounts2, seqcounts3) 
+	file "${sample}.uniq_seq"  into (uniq_seqs1, uniq_seqs2, uniq_seqs3, uniq_seqs4) 
+
 
 script:
-    (foward,reverse) = reads
+    sample=foward.getName().replace(".F.fq.gz",'')
+    
     PERLT='while (<>) {chomp; $z{$_}++;} while(($k,$v) = each(%z)) {print "$v\t$k\n";}'
 
-
 """
+
    zcat ${foward} | mawk 'BEGIN{P=1}{if(P==1||P==2){gsub(/^[@]/,">");print}; if(P==4)P=0; P++}' | mawk '!/>/'   > ${sample}.forward
    zcat ${reverse} |mawk 'BEGIN{P=1}{if(P==1||P==2){gsub(/^[@]/,">");print}; if(P==4)P=0; P++}' | mawk '!/>/'  > ${sample}.reverse
 
    paste -d '-' ${sample}.forward  ${sample}.reverse | mawk '!/NNN/' |  sed 's/-/NNNNNNNNNN/' | perl -e  '$PERLT' > ${sample}.uniq_seq
-   
+  
+ 
 """
-	 
+
+
 }
 
 
 
-
 process sample_coverage{
-
     
-    publishDir params.output + "/coverage"
+    publishDir params.output + "/Coverage"
     
     input:
-       file uniqseqs from  seqcounts1
-   output:
-	file  "${uniqseqs.baseName}.coverage"
+        file uniqseqs from  uniq_seqs1
 	
+    output:
+	file  "${uniqseqs.baseName}.coverage"
+
+
 shell:
 '''
+
    for i in {2..20};
    do 
       echo \$i >> pfile
    done
+   
    cat pfile | parallel \
    --no-notice \
-   -j ${params.mcpu} \
+   -j !{params.mcpu} \
    "echo -n {}xxx && mawk -v x={} '\\$1 >= x' !{uniqseqs} | wc -l " \
    | mawk  '{gsub("xxx","\t",\$0); print;}' \
    | sort -g > !{uniqseqs.baseName}.coverage
+   
 '''
 
 }
@@ -122,12 +140,13 @@ shell:
 
 process combined_coverage{
     
-    publishDir  params.output + "/uniqRAD/coverage"
+    publishDir  params.output + "/Coverage"
     
     input:
-        file uniqseqs from  seqcounts2.collect()
+        file uniqseqs from  uniq_seqs2.collect()
     output:
        file  "combined.coverage"
+       
 	
 shell:
 '''
@@ -136,9 +155,10 @@ shell:
     do 
     echo \$i >> pfile
     done
+    
     cat pfile | parallel \
     --no-notice \
-    -j ${params.mcpu} \
+    -j !{params.mcpu} \
     "echo -n {}xxx && mawk -v x={} '\\$1 >= x' !{uniqseqs} | wc -l " \
     | mawk  '{gsub("xxx","\t",\$0); print;}' \
     | sort -g > combined.coverage
@@ -147,35 +167,11 @@ shell:
 //TO DO
 //Simplify this shell pipe
 
+
+
 }
 
 
-
-uniq_rad2.map{ it  -> [it[1][0], it[1][1]]}
-                      .flatten()
-                      .set{gunzipped}
-
-
-process gunzip_fastq{
-    
-    echo true
-    publishDir params.output + "/uniqRAD/seqcount_data"
-    input:
-        file fastq_gz from gunzipped
-	
-    output:
-        file "${fastq_gz.baseName}*" into fastq_raw
-	
-script:
-"""
-  
-  gunzip -vk --force  ${fastq_gz}
-  
-   
-"""
-}
-
-       
 
 process Coverage_filtering{
     
@@ -183,14 +179,13 @@ process Coverage_filtering{
     publishDir params.output + "/uniqRAD/seqcount_data"
 	
     input:
-        file reads from fastq_raw.collect()
+        file uniqseqs from uniq_seqs3.collect()
 	
     output:
-        file "${sample}.uniqCperindv"
+        file "combined.uniqCperindv"
 	
 script:
 
-     sample=reads[1].baseName
      PERLT='while (<>) {chomp; $z{$_}++;} while(($k,$v) = each(%z)) {print "$v\t$k\n";}'
 
 	
@@ -198,11 +193,11 @@ script:
 
     parallel --no-notice  \
        -j ${params.mcpu} \
-       mawk -v x=${params.min_cov} \\''\$1 >= x'\\' ::: ${reads} \
+       mawk -v x=${params.min_cov} \\''\$1 >= x'\\' ::: ${uniqseqs} \
        | cut -f2 \
-       | perl -e '${PERLT}' > ${sample}.uniqCperindv
+       | perl -e '${PERLT}' > combined.uniqCperindv
 
-    wc -l ${sample}.uniqCperindv
+    wc -l combined.uniqCperindv
    
 """
 
@@ -217,7 +212,7 @@ process seq_filter{
     publishDir params.output + "/uniqRAD/coverage"
     
     input:
-       file uniqseqs from  uniq_rad3.collect()
+       file uniqseqs from  uniq_seqs4.collect()
 
    output:
       file  "*uniqCperindv"
@@ -254,7 +249,6 @@ shell:
 
 '''
 
-
 }
 
 
@@ -262,7 +256,7 @@ shell:
 process get_contigs{
 
     echo true
-    publishDir params.output + "/contigs"
+    publishDir params.output + "/Contigs"
     
     input:
         file uniq_seqs from uniq_filtrd
@@ -290,14 +284,15 @@ shell:
 process cd_hit_FWD{
 
 
-     publishDir params.output + "/contigs"
+     publishDir params.output + "/CD_Hit"
      
      input:
          file uniq_FWD from uniq_FWD_reads
 
     output:
-        file "${uniq_FWD.baseName}*" into cd_hit_clusters
- 	//file "sort_contig.cluster_ids" into test
+        file "${uniq_FWD.baseName}_cdhit" into cd_hit_sequences
+	file "${uniq_FWD.baseName}_cdhit.clstr" into cd_hit_clusters
+ 	
 
 
 """
@@ -319,7 +314,7 @@ process cd_hit_FWD{
 process  merge_contigs{
 
     echo true
-    publishDir params.output + "/clusters"
+    publishDir params.output + "/Clusters"
     
     input:
          file Fwd_clusters from cd_hit_clusters
@@ -357,7 +352,7 @@ shell:
 process rainbow_div{
 
     echo true
-    publishDir params.output + "/clusters"
+    publishDir params.output + "/Clusters"
     input:
         file rainbow_clusters
 
@@ -386,7 +381,7 @@ process rainbow_div{
 process rainbow_merge{
 
     echo true
-    publishDir params.output + "/contigs"
+    publishDir params.output + "/Contigs"
     
     input:
         file   rainbow_div
@@ -455,8 +450,8 @@ shell:
 
 process cd_hit_contigs{
 
-    echo true
-    publishDir params.output + "/contigs"
+
+    publishDir params.output + "/Contigs"
     
     input:
         file merged_contigs  from rainbow_contigs
