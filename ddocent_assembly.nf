@@ -1,16 +1,18 @@
 #!/usr/bin/env nextflow
 
 NXF_ANSI_LOG=false
-//script parameters
-params.reads	 =  "/home/drewx/Documents/pool-ezRAD/SimulationData"
-params.reads_ext = "fastq.gz"
-params.pattern 	 =  "*R{1,2}.fastq.gz"
 
-//params.pattern 	=  "*_{1,2}.fastq"
+//script parameters
+//params.reads	 =  "/home/drewx/Documents/pool-ezRAD/SimulationData"
+params.reads	 =  "/home/drewx/Documents/pool-ezRAD/dDocent/RadTags"
+params.reads_ext = "fastq.gz"
+//params.pattern 	 =  "*R{1,2}.fastq.gz"
+params.pattern  =  "*{1,2}.fq.gz"
 params.output   =  "$PWD/dDocent"
 params.hcpu	=  4
 params.mcpu	=  4
 params.barcodes =  "/home/drewx/Documents/pool-ezRAD/SimulationData2/SimRAD.barcodes"
+params.demultiplex = false
 params.min_cov  = 4
 params.min_sample  = 4
 params.clu_perc = 0.8
@@ -18,16 +20,15 @@ params.clu_perc = 0.8
 
 reads_pattern 	=  params.reads + "/*" + params.pattern
 
-barcodes 	=  Channel.fromPath(params.barcodes)
-                           .ifEmpty{ exit 1, "params.barcodes empty no reads found" }
-
-
 Channel.fromFilePairs(reads_pattern)
        .ifEmpty{ exit 1, "params.reads empty no reads found" }
        .into{rad_tags; uniq_rad1; uniq_rad2; uniq_rad3; raw_reads_bwa}     
 
 
+if (params.demultiplex){
 
+barcodes = Channel.fromPath(params.barcodes)
+                  .ifEmpty{ exit 1, "params.barcodes empty no reads found" }
 
 
 process process_radtags{
@@ -41,7 +42,7 @@ process process_radtags{
 
     output:
 	file "process_radtags.log"  into rag_log
-	file "*.{F,R}.fq.gz"  into (demultiplexed_reads1, demultiplexed_reads2) 
+	file "*.{1,2}.fq.gz"  into demultiplexed_reads 
 
 
 script:
@@ -64,13 +65,23 @@ script:
 
     rm *rem*
 
-    Rename_for_dDocent.sh \
+    #Rename_for_dDocent.sh \
         SimRAD.barcodes
 
 """
 
 }
 
+    demultiplexed_reads = demultiplexed_reads.flatten().collate(2, false)
+    demultiplexed_reads.subscribe{ println it }
+
+}
+else{
+
+   demultiplexed_reads = rad_tags.map{ it[1] }
+
+
+}
 
 
 process uniq_RAD{
@@ -79,7 +90,7 @@ process uniq_RAD{
     publishDir params.output + "/uniqRAD", pattern: "*.uniq_seq"
     
     input:
-        set foward, reverse from demultiplexed_reads1.flatten().collate(2, false)
+        set foward, reverse from demultiplexed_reads
 
     output:
         file "${sample}.{forward,reverse}"
@@ -168,7 +179,6 @@ shell:
 //Simplify this shell pipe
 
 
-
 }
 
 
@@ -247,6 +257,7 @@ shell:
 
    wc -l uniq_k!{params.min_cov}_c!{params.min_sample}.seqs | tee  - count_k!{params.min_cov}_c!{params.min_sample}.seqs
 
+
 '''
 
 }
@@ -293,7 +304,6 @@ process cd_hit_FWD{
         file "${uniq_FWD.baseName}_cdhit" into cd_hit_sequences
 	file "${uniq_FWD.baseName}_cdhit.clstr" into cd_hit_clusters
  	
-
 
 """
 
@@ -451,7 +461,7 @@ shell:
 process cd_hit_contigs{
 
 
-    publishDir params.output + "/Contigs"
+    publishDir params.output + "/ezRAD_contigs"
     
     input:
         file merged_contigs  from rainbow_contigs
@@ -467,8 +477,12 @@ script:
 	 -o ${merged_contigs.baseName}_cdhit \
 	 -c ${params.clu_perc} \
 	 -T ${params.hcpu} \
-	 -M 0 \
-
+	 -M 0 
 
 """
+
 }
+
+//TO DO
+//write a script to describe the sequence distribution
+//plot sequence distribution
