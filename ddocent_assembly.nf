@@ -3,16 +3,17 @@
 NXF_ANSI_LOG=false
 
 //script parameters
-//params.reads	 =  "/home/drewx/Documents/pool-ezRAD/SimulationData"
-params.reads	 =  "/home/drewx/Documents/pool-ezRAD/dDocent/RadTags"
-params.reads_ext = "fastq.gz"
-//params.pattern 	 =  "*R{1,2}.fastq.gz"
-params.pattern  =  "*{1,2}.fq.gz"
-params.output   =  "$PWD/dDocent"
+//params.reads	 = "/opt/DB_REF/Clinid.ezRAD/"
+//params.reads   = "/home/drewx/Documents/pool-ezRAD/Test/"
+params.reads     = "/home/drewx/Documents/pool-ezRAD/test1"
+//params.reads_ext = "fastq.gz"
+//params.pattern 	 =  "*R{1,2}_001.fastq.gz"
+params.pattern 	 =  "*R{1,2}.fastq.gz"
+params.output   =  "$PWD/SimRAD"
 params.hcpu	=  4
 params.mcpu	=  4
-params.barcodes =  "/home/drewx/Documents/pool-ezRAD/SimulationData2/SimRAD.barcodes"
-params.demultiplex = false
+params.barcodes =  "/home/drewx/Documents/pool-ezRAD/test1/SimRAD.barcodes"
+params.demultiplex = true
 params.min_cov  = 4
 params.min_sample  = 4
 params.clu_perc = 0.8
@@ -20,10 +21,9 @@ params.clu_perc = 0.8
 
 reads_pattern 	=  params.reads + "/*" + params.pattern
 
-Channel.fromFilePairs(reads_pattern)
-       .ifEmpty{ exit 1, "params.reads empty no reads found" }
-       .into{rad_tags; uniq_rad1; uniq_rad2; uniq_rad3; raw_reads_bwa}     
-
+rad_tags = Channel.fromFilePairs(reads_pattern)
+                  .ifEmpty{ exit 1, "params.reads empty no reads found" }
+		  
 
 if (params.demultiplex){
 
@@ -34,15 +34,15 @@ barcodes = Channel.fromPath(params.barcodes)
 process process_radtags{
 
     //echo true
-    publishDir  params.output + "/RadTags"
+    publishDir  params.output + "/RadTags", mode: 'copy'
     
     input:
         set val(sample),  file(reads) from rad_tags
 	file barcodes
 
     output:
-	file "process_radtags.log"  into rag_log
-	file "*.{1,2}.fq.gz"  into demultiplexed_reads 
+	file "process_radtags.log"
+	file "*.{F,R}.fq.gz"  into demultiplexed_reads 
 
 
 script:
@@ -65,7 +65,7 @@ script:
 
     rm *rem*
 
-    #Rename_for_dDocent.sh \
+    Rename_for_dDocent.sh \
         SimRAD.barcodes
 
 """
@@ -73,7 +73,6 @@ script:
 }
 
     demultiplexed_reads = demultiplexed_reads.flatten().collate(2, false)
-    demultiplexed_reads.subscribe{ println it }
 
 }
 else{
@@ -86,19 +85,22 @@ else{
 
 process uniq_RAD{
 
-    publishDir params.output + "/RawReads"
-    publishDir params.output + "/uniqRAD", pattern: "*.uniq_seq"
     
     input:
         set foward, reverse from demultiplexed_reads
 
     output:
-        file "${sample}.{forward,reverse}"
 	file "${sample}.uniq_seq"  into (uniq_seqs1, uniq_seqs2, uniq_seqs3, uniq_seqs4) 
 
 
 script:
-    sample=foward.getName().replace(".F.fq.gz",'')
+    if(params.demultiplex){
+       sample=foward.getName().replace(".F.fq.gz",'')
+    }
+    else{
+       sample=foward.getName().replace("R1_001.fastq.gz",'')
+
+    }
     
     PERLT='while (<>) {chomp; $z{$_}++;} while(($k,$v) = each(%z)) {print "$v\t$k\n";}'
 
@@ -119,7 +121,7 @@ script:
 
 process sample_coverage{
     
-    publishDir params.output + "/Coverage"
+    publishDir params.output + "/coverage", mode: 'copy'
     
     input:
         file uniqseqs from  uniq_seqs1
@@ -151,7 +153,7 @@ shell:
 
 process combined_coverage{
     
-    publishDir  params.output + "/Coverage"
+    publishDir  params.output + "/coverage", mode: 'copy'
     
     input:
         file uniqseqs from  uniq_seqs2.collect()
@@ -183,10 +185,10 @@ shell:
 
 
 
-process Coverage_filtering{
+process coverage_filtering{
     
-    echo true
-    publishDir params.output + "/uniqRAD/seqcount_data"
+   
+    publishDir params.output + "/uniqRAD/"
 	
     input:
         file uniqseqs from uniq_seqs3.collect()
@@ -195,7 +197,6 @@ process Coverage_filtering{
         file "combined.uniqCperindv"
 	
 script:
-
      PERLT='while (<>) {chomp; $z{$_}++;} while(($k,$v) = each(%z)) {print "$v\t$k\n";}'
 
 	
@@ -210,7 +211,6 @@ script:
     wc -l combined.uniqCperindv
    
 """
-
 	
 }
 
@@ -219,15 +219,17 @@ script:
 process seq_filter{
 
     echo true
-    publishDir params.output + "/uniqRAD/coverage"
+    publishDir params.output + "/coverage", pattern: "uniqseq.peri.data", mode: 'copy'
+    
     
     input:
        file uniqseqs from  uniq_seqs4.collect()
 
    output:
-      file  "*uniqCperindv"
-      file  "count_k${params.min_cov}_c${params.min_sample}.seqs"
-      file  "uniq_k${params.min_cov}_c${params.min_sample}.seqs" into uniq_filtrd
+      //file  "uniqCperindv"
+      file  "uniqseq.peri.data"
+      //file  "count_k${params.min_sample}_c${params.min_cov}.seqs"
+      file  "uniq_k${params.min_sample}_c${params.min_cov}.seqs" into uniq_filtrd
 
 
 script:
@@ -253,12 +255,12 @@ shell:
 
    wc -l uniqCperindv | tee - count.uniqCperindv
 
-   mawk -v x=!{params.min_sample} '\$1 >= x' uniqCperindv > uniq_k!{params.min_cov}_c!{params.min_sample}.seqs
+   mawk -v x=!{params.min_sample} '\$1 >= x' uniqCperindv > uniq_k!{params.min_sample}_c!{params.min_cov}.seqs
 
-   wc -l uniq_k!{params.min_cov}_c!{params.min_sample}.seqs | tee  - count_k!{params.min_cov}_c!{params.min_sample}.seqs
-
+   wc -l uniq_k!{params.min_sample}_c!{params.min_cov}.seqs | tee  - count_k!{params.min_sample}_c!{params.min_cov}.seqs
 
 '''
+
 
 }
 
@@ -266,23 +268,23 @@ shell:
 
 process get_contigs{
 
-    echo true
-    publishDir params.output + "/Contigs"
+    
+    publishDir params.output + "/contigs"
     
     input:
         file uniq_seqs from uniq_filtrd
 
     output:
 	 file "totaluniqseq" into totaluniqseq
-	 file "uniq.fasta"
+	 file "uniq.fasta" into uniq_fasta
 	 file "uniq_Fwd.fasta" into uniq_FWD_reads
 
 shell:
 '''
-
+	
     cut -f 2 !{uniq_seqs}  > totaluniqseq
     
-    mawk '{c= c + 1; print ">Contig_" c "\\n" $1}' totaluniqseq > uniq.fasta
+    txt2fasta.py totaluniqseq 
 
     sed -e 's/NNNNNNNNNN/\t/g' uniq.fasta | cut -f 1 > uniq_Fwd.fasta
 
@@ -295,13 +297,13 @@ shell:
 process cd_hit_FWD{
 
 
-     publishDir params.output + "/CD_Hit"
+     //publishDir params.output + "/CD_Hit", mode: 'copy'
      
      input:
          file uniq_FWD from uniq_FWD_reads
 
     output:
-        file "${uniq_FWD.baseName}_cdhit" into cd_hit_sequences
+        file "${uniq_FWD.baseName}_cdhit"
 	file "${uniq_FWD.baseName}_cdhit.clstr" into cd_hit_clusters
  	
 
@@ -323,16 +325,16 @@ process cd_hit_FWD{
 
 process  merge_contigs{
 
-    echo true
-    publishDir params.output + "/Clusters"
+   
+    //publishDir params.output + "/clusters", mode: 'copy'
     
     input:
          file Fwd_clusters from cd_hit_clusters
 	 file totaluniqseq
-
+	 file uniq_fasta
+	 
     output:
         file "sort_contig.cluster_ids" 
-	file "contig_cluster.totaluniqseq"
         file "Rclusters" into rainbow_clusters
 
 shell:
@@ -342,10 +344,9 @@ shell:
       | sed 's/[>Contig_,...]//g' \
       | sort -g -k 1  > sort_contig.cluster_ids
    
-   paste sort_contig.cluster_ids !{totaluniqseq}  > contig_cluster.totaluniqseq
-
-   sort -k 2,2 -g contig_cluster.totaluniqseq \
-      | sed -e 's/NNNNNNNNNN/\\t/g' > Rclusters 
+  contig2clstr.py \
+      -s  ${uniq_fasta} \
+      -c sort_contig.cluster_ids | sed -e 's/NNNNNNNNNN/\\t/g' > Rclusters 
 
 """
 
@@ -361,8 +362,8 @@ shell:
 
 process rainbow_div{
 
-    echo true
-    publishDir params.output + "/Clusters"
+    
+    publishDir params.output + "/clusters", mode: 'copy'
     input:
         file rainbow_clusters
 
@@ -390,8 +391,8 @@ process rainbow_div{
 
 process rainbow_merge{
 
-    echo true
-    publishDir params.output + "/Contigs"
+    
+    publishDir params.output + "/contigs", mode: 'copy'
     
     input:
         file   rainbow_div
@@ -406,7 +407,7 @@ shell:
     rainbow \
         merge \
         -i !{rainbow_div} \
-        -r 2\
+        -r 1 \
         -a \
         -o rainbow_assembly.rbasm
 
@@ -461,7 +462,7 @@ shell:
 process cd_hit_contigs{
 
 
-    publishDir params.output + "/ezRAD_contigs"
+    publishDir params.output + "/ezRAD_contigs", mode: 'copy'
     
     input:
         file merged_contigs  from rainbow_contigs
